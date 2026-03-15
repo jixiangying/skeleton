@@ -830,10 +830,10 @@
                     
                     // Auto-open info panel on mobile after selecting a bone
                     if (window.innerWidth <= 768) {
-                        const infoPanel = document.querySelector('.info-panel');
+                        const infoPanel = document.getElementById('info-panel');
                         const sidebar = document.querySelector('.sidebar');
                         const overlay = document.getElementById('overlay');
-                        if (infoPanel && !infoPanel.classList.contains('open')) {
+                        if (infoPanel) {
                             sidebar?.classList.remove('open');
                             infoPanel.classList.add('open');
                             overlay?.classList.add('show');

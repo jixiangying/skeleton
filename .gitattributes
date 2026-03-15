@@ -1,4 +1,1 @@
-# Git LFS 追踪规则
-# 追踪所有OBJ模型文件
-*.obj filter=lfs diff=lfs merge=lfs -text
 *.obj !text !filter !merge !diff

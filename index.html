@@ -4,11 +4,12 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <meta name="theme-color" content="#0a0a0f">
-    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
     <title>BodyParts3D 真实人体解剖模型 - 202骨骼</title>
     <link rel="icon" type="image/svg+xml" href="favicon.svg">
     <link rel="apple-touch-icon" href="favicon.svg">
+    <!-- Tailwind CSS for styling -->
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
     <script src="js/OrbitControls.js"></script>
@@ -591,6 +592,7 @@
                 loader.load(
                     filePath,
                     (object) => {
+                        console.log(`Loaded: ${boneInfo.file}`);
                         object.traverse((child) => {
                             if (child.isMesh) {
                                 child.material = new THREE.MeshStandardMaterial({
@@ -617,9 +619,9 @@
                         
                         resolve(object);
                     },
-                    undefined,
+                    (progress) => {},
                     (error) => {
-                        console.warn(`Failed to load ${boneInfo.file}`);
+                        console.error(`Failed to load ${boneInfo.file}:`, error);
                         reject(error);
                     }
                 );
@@ -651,6 +653,10 @@
                 document.getElementById('loading').style.opacity = '0';
                 setTimeout(() => document.getElementById('loading').style.display = 'none', 500);
                 isLoading = false;
+                // Force render after loading complete
+                renderer.render(scene, camera);
+                console.log('Loading complete. Models in scene:', loadedModels.size);
+                console.log('Scene children count:', scene.children.length);
             }, 500);
             
             document.getElementById('loaded-count').textContent = loadedCount;

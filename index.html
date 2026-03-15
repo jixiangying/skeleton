@@ -539,12 +539,23 @@
             controls.enableDamping = true;
             controls.dampingFactor = 0.05;
             controls.target.set(0, 70, 0);
+            // Allow click events to pass through
+            controls.enableRotate = true;
+            controls.enablePan = true;
+            controls.enableZoom = true;
+            // Don't prevent default on touch events to allow raycasting
+            controls.touches = {
+                ONE: THREE.TOUCH.ROTATE,
+                TWO: THREE.TOUCH.DOLLY_PAN
+            };
             
             raycaster = new THREE.Raycaster();
             mouse = new THREE.Vector2();
             
             window.addEventListener('resize', onWindowResize);
             renderer.domElement.addEventListener('click', onCanvasClick);
+            renderer.domElement.addEventListener('touchstart', onCanvasClick, { passive: false });
+            renderer.domElement.addEventListener('touchend', onCanvasClick, { passive: false });
             renderer.domElement.addEventListener('mousemove', onMouseMove);
             
             createBoneList();
@@ -763,11 +774,31 @@
             `;
         }
 
+        function getEventCoordinates(event) {
+            // Handle both mouse and touch events
+            if (event.changedTouches && event.changedTouches.length > 0) {
+                return {
+                    x: event.changedTouches[0].clientX,
+                    y: event.changedTouches[0].clientY
+                };
+            }
+            return {
+                x: event.clientX,
+                y: event.clientY
+            };
+        }
+
         function onCanvasClick(event) {
             if (isLoading) return;
             
-            mouse.x = (event.clientX / window.innerWidth) * 2 - 1;
-            mouse.y = -(event.clientY / window.innerHeight) * 2 + 1;
+            // Prevent default to avoid double firing on some devices
+            if (event.type === 'touchend') {
+                event.preventDefault();
+            }
+            
+            const coords = getEventCoordinates(event);
+            mouse.x = (coords.x / window.innerWidth) * 2 - 1;
+            mouse.y = -(coords.y / window.innerHeight) * 2 + 1;
             
             raycaster.setFromCamera(mouse, camera);
             

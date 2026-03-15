@@ -1,0 +1,2 @@
+# 暂时禁用LFS
+*.obj !text !filter !merge !diff

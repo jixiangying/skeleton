@@ -1,0 +1,901 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <meta name="theme-color" content="#0a0a0f">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <title>BodyParts3D 真实人体解剖模型 - 202骨骼</title>
+    <link rel="icon" type="image/svg+xml" href="favicon.svg">
+    <link rel="apple-touch-icon" href="favicon.svg">
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <script src="js/OrbitControls.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/loaders/OBJLoader.js"></script>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+            background: #0a0a0f;
+            color: #e4e4e7;
+            overflow: hidden;
+        }
+        #canvas-container {
+            position: fixed;
+            top: 0; left: 0;
+            width: 100%; height: 100%;
+            z-index: 1;
+        }
+        .glass-panel {
+            background: rgba(20, 20, 30, 0.85);
+            backdrop-filter: blur(20px);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            border-radius: 16px;
+        }
+        .sidebar {
+            position: fixed;
+            left: 20px; top: 50%;
+            transform: translateY(-50%);
+            z-index: 100;
+            padding: 20px;
+            width: 340px;
+            max-height: 90vh;
+            overflow-y: auto;
+        }
+        .info-panel {
+            position: fixed;
+            right: 20px; top: 20px;
+            z-index: 100;
+            padding: 24px;
+            width: 380px;
+            max-height: calc(100vh - 40px);
+            overflow-y: auto;
+        }
+        .tooltip {
+            position: fixed;
+            background: rgba(0, 0, 0, 0.9);
+            color: white;
+            padding: 8px 12px;
+            border-radius: 6px;
+            font-size: 13px;
+            pointer-events: none;
+            z-index: 200;
+            display: none;
+            border: 1px solid rgba(255,255,255,0.2);
+        }
+        .loading-overlay {
+            position: fixed;
+            top: 0; left: 0;
+            width: 100%; height: 100%;
+            background: #0a0a0f;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            z-index: 1000;
+            transition: opacity 0.5s ease;
+        }
+        .loading-spinner {
+            width: 60px; height: 60px;
+            border: 3px solid rgba(59, 130, 246, 0.2);
+            border-top-color: #3b82f6;
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+        }
+        @keyframes spin { to { transform: rotate(360deg); } }
+        .progress-bar {
+            width: 300px; height: 4px;
+            background: rgba(255, 255, 255, 0.1);
+            border-radius: 2px;
+            margin-top: 20px;
+            overflow: hidden;
+        }
+        .progress-fill {
+            height: 100%;
+            background: linear-gradient(90deg, #3b82f6, #8b5cf6);
+            transition: width 0.3s ease;
+        }
+        .bone-item {
+            padding: 8px 12px;
+            margin-bottom: 4px;
+            border-radius: 8px;
+            background: rgba(255, 255, 255, 0.03);
+            cursor: pointer;
+            transition: all 0.2s ease;
+            border-left: 3px solid transparent;
+            font-size: 12px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        .bone-item:hover {
+            background: rgba(255, 255, 255, 0.08);
+            border-left-color: #3b82f6;
+        }
+        .bone-item.active {
+            background: rgba(59, 130, 246, 0.2);
+            border-left-color: #3b82f6;
+        }
+        .bone-item.loaded { border-left-color: #10b981; }
+        .bone-item .en-name {
+            font-size: 10px;
+            color: #71717a;
+            margin-left: 8px;
+            font-style: italic;
+        }
+        .section-title {
+            font-size: 11px; font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            color: #71717a;
+            margin: 16px 0 8px 0;
+            padding-bottom: 6px;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+        }
+        .stats-bar {
+            position: fixed;
+            bottom: 20px; left: 50%;
+            transform: translateX(-50%);
+            z-index: 100;
+            padding: 12px 24px;
+            display: flex; gap: 30px;
+        }
+        .stat-item { text-align: center; }
+        .stat-value { font-size: 20px; font-weight: 700; color: #3b82f6; }
+        .stat-label { font-size: 11px; color: #71717a; margin-top: 2px; }
+        ::-webkit-scrollbar { width: 6px; }
+        ::-webkit-scrollbar-track { background: transparent; }
+        ::-webkit-scrollbar-thumb { background: rgba(255, 255, 255, 0.1); border-radius: 3px; }
+        .search-box {
+            width: 100%; padding: 8px 12px;
+            background: rgba(255,255,255,0.05);
+            border: 1px solid rgba(255,255,255,0.1);
+            border-radius: 8px; color: white;
+            font-size: 13px; margin-bottom: 12px;
+        }
+        .search-box:focus { outline: none; border-color: #3b82f6; }
+        .cn-name { font-weight: 500; }
+        
+        /* 移动端控制按钮 */
+        .mobile-toggle {
+            display: none;
+            position: fixed;
+            z-index: 200;
+            background: rgba(59, 130, 246, 0.9);
+            border: none;
+            color: white;
+            padding: 12px;
+            border-radius: 50%;
+            cursor: pointer;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.3);
+            font-size: 18px;
+            width: 48px;
+            height: 48px;
+            align-items: center;
+            justify-content: center;
+        }
+        .mobile-toggle:hover { background: rgba(59, 130, 246, 1); }
+        .toggle-list { bottom: 100px; left: 20px; }
+        .toggle-info { bottom: 100px; right: 20px; }
+        
+        /* 响应式设计 */
+        @media (max-width: 768px) {
+            .sidebar {
+                width: 280px;
+                left: -300px;
+                top: 0;
+                transform: none;
+                height: 100vh;
+                max-height: 100vh;
+                border-radius: 0;
+                transition: left 0.3s ease;
+            }
+            .sidebar.open { left: 0; }
+            
+            .info-panel {
+                width: 280px;
+                right: -300px;
+                top: 0;
+                max-height: 100vh;
+                border-radius: 0;
+                transition: right 0.3s ease;
+            }
+            .info-panel.open { right: 0; }
+            
+            .mobile-toggle { display: flex; }
+            
+            .stats-bar {
+                bottom: 20px;
+                padding: 8px 16px;
+                gap: 20px;
+            }
+            .stat-value { font-size: 16px; }
+            
+            /* 触摸优化 */
+            .bone-item {
+                padding: 12px;
+                font-size: 14px;
+            }
+            
+            /* 隐藏tooltip在移动端 */
+            .tooltip { display: none !important; }
+        }
+        
+        @media (max-width: 480px) {
+            .sidebar, .info-panel {
+                width: 100%;
+                left: -100%;
+                right: auto;
+            }
+            .sidebar.open { left: 0; }
+            .info-panel { left: auto; right: -100%; }
+            .info-panel.open { right: 0; left: auto; }
+        }
+        
+        /* 遮罩层 */
+        .overlay {
+            display: none;
+            position: fixed;
+            top: 0; left: 0;
+            width: 100%; height: 100%;
+            background: rgba(0,0,0,0.5);
+            z-index: 99;
+        }
+        .overlay.show { display: block; }
+    </style>
+</head>
+<body>
+    <div id="tooltip" class="tooltip"></div>
+    <div class="overlay" id="overlay"></div>
+    
+    <!-- 移动端控制按钮 -->
+    <button class="mobile-toggle toggle-list" id="toggle-list" title="骨骼列表">☰</button>
+    <button class="mobile-toggle toggle-info" id="toggle-info" title="信息面板">ℹ</button>
+    
+    <div id="loading" class="loading-overlay">
+        <div class="loading-spinner"></div>
+        <div style="margin-top: 20px; color: #71717a; font-size: 14px;">正在加载 BodyParts3D 真实解剖模型...</div>
+        <div id="loading-status" style="margin-top: 10px; color: #999; font-size: 12px;">准备中</div>
+        <div class="progress-bar"><div id="progress-fill" class="progress-fill" style="width: 0%"></div></div>
+    </div>
+    <div id="canvas-container"></div>
+    <div class="sidebar glass-panel">
+        <div style="font-size: 16px; font-weight: 700; margin-bottom: 4px;">BodyParts3D 骨骼模型</div>
+        <div style="font-size: 11px; color: #71717a; margin-bottom: 12px;">基于2mm MRI扫描的真实人体模型 · 202骨骼</div>
+        <input type="text" class="search-box" id="search-box" placeholder="搜索骨骼（中英文）...">
+        <div id="bone-list"></div>
+    </div>
+    <div class="info-panel glass-panel" id="info-panel">
+        <div style="font-size: 12px; font-weight: 600; text-transform: uppercase; letter-spacing: 1px; color: #71717a; margin-bottom: 16px; padding-bottom: 8px; border-bottom: 1px solid rgba(255, 255, 255, 0.1);">模型信息</div>
+        <div id="info-content">
+            <p style="color: #71717a; line-height: 1.6; font-size: 13px;">
+                点击左侧骨骼列表或直接在 3D 模型上点击查看详细信息。<br><br>
+                使用鼠标左键旋转，右键平移，滚轮缩放。
+            </p>
+        </div>
+    </div>
+    <div class="stats-bar glass-panel">
+        <div class="stat-item"><div class="stat-value" id="loaded-count">0</div><div class="stat-label">已加载</div></div>
+        <div class="stat-item"><div class="stat-value" id="total-count">0</div><div class="stat-label">骨骼总数</div></div>
+    </div>
+
+    <script>
+        const boneModels = [
+            { file: "FJ2772.obj", name: "舌骨", nameEn: "hyoid bone", category: "skull" },
+            { file: "FJ3152.obj", name: "右髋骨", nameEn: "right hip bone", category: "lower" },
+            { file: "FJ3153.obj", name: "胸骨", nameEn: "sternum", category: "ribs" },
+            { file: "FJ3154.obj", name: "胸椎T10", nameEn: "tenth thoracic vertebra", category: "spine" },
+            { file: "FJ3155.obj", name: "胸椎T11", nameEn: "eleventh thoracic vertebra", category: "spine" },
+            { file: "FJ3156.obj", name: "胸椎T12", nameEn: "twelfth thoracic vertebra", category: "spine" },
+            { file: "FJ3157.obj", name: "腰椎L1", nameEn: "first lumbar vertebra", category: "spine" },
+            { file: "FJ3158.obj", name: "胸椎T1", nameEn: "first thoracic vertebra", category: "spine" },
+            { file: "FJ3159.obj", name: "腰椎L2", nameEn: "second lumbar vertebra", category: "spine" },
+            { file: "FJ3160.obj", name: "胸椎T2", nameEn: "second thoracic vertebra", category: "spine" },
+            { file: "FJ3161.obj", name: "颈椎C3", nameEn: "third cervical vertebra", category: "spine" },
+            { file: "FJ3162.obj", name: "腰椎L3", nameEn: "third lumbar vertebra", category: "spine" },
+            { file: "FJ3163.obj", name: "胸椎T3", nameEn: "third thoracic vertebra", category: "spine" },
+            { file: "FJ3164.obj", name: "颈椎C4", nameEn: "fourth cervical vertebra", category: "spine" },
+            { file: "FJ3165.obj", name: "腰椎L4", nameEn: "fourth lumbar vertebra", category: "spine" },
+            { file: "FJ3166.obj", name: "胸椎T4", nameEn: "fourth thoracic vertebra", category: "spine" },
+            { file: "FJ3167.obj", name: "颈椎C5", nameEn: "fifth cervical vertebra", category: "spine" },
+            { file: "FJ3168.obj", name: "腰椎L5", nameEn: "fifth lumbar vertebra", category: "spine" },
+            { file: "FJ3169.obj", name: "胸椎T5", nameEn: "fifth thoracic vertebra", category: "spine" },
+            { file: "FJ3170.obj", name: "颈椎C6", nameEn: "sixth cervical vertebra", category: "spine" },
+            { file: "FJ3171.obj", name: "胸椎T6", nameEn: "sixth thoracic vertebra", category: "spine" },
+            { file: "FJ3172.obj", name: "颈椎C7", nameEn: "seventh cervical vertebra", category: "spine" },
+            { file: "FJ3173.obj", name: "胸椎T7", nameEn: "seventh thoracic vertebra", category: "spine" },
+            { file: "FJ3174.obj", name: "胸椎T8", nameEn: "eighth thoracic vertebra", category: "spine" },
+            { file: "FJ3175.obj", name: "胸椎T9", nameEn: "ninth thoracic vertebra", category: "spine" },
+            { file: "FJ3176.obj", name: "颈椎C1（寰椎）", nameEn: "atlas (C1)", category: "spine" },
+            { file: "FJ3177.obj", name: "颈椎C2（枢椎）", nameEn: "axis (C2)", category: "spine" },
+            { file: "FJ3178.obj", name: "胸骨", nameEn: "sternum", category: "ribs" },
+            { file: "FJ3179.obj", name: "左第2趾远节趾骨", nameEn: "distal phalanx of left second toe", category: "lower" },
+            { file: "FJ3180.obj", name: "左第3趾远节趾骨", nameEn: "distal phalanx of left third toe", category: "lower" },
+            { file: "FJ3181.obj", name: "左第4趾远节趾骨", nameEn: "distal phalanx of left fourth toe", category: "lower" },
+            { file: "FJ3182.obj", name: "左拇趾远节趾骨", nameEn: "distal phalanx of left big toe", category: "lower" },
+            { file: "FJ3183.obj", name: "左食指远节指骨", nameEn: "distal phalanx of left index finger", category: "upper" },
+            { file: "FJ3184.obj", name: "左小指远节指骨", nameEn: "distal phalanx of left little finger", category: "upper" },
+            { file: "FJ3185.obj", name: "左第5趾远节趾骨", nameEn: "distal phalanx of left little toe", category: "lower" },
+            { file: "FJ3186.obj", name: "左中指中节指骨", nameEn: "distal phalanx of left middle finger", category: "upper" },
+            { file: "FJ3187.obj", name: "左环指远节指骨", nameEn: "distal phalanx of left ring finger", category: "upper" },
+            { file: "FJ3188.obj", name: "左拇指远节指骨", nameEn: "distal phalanx of left thumb", category: "upper" },
+            { file: "FJ3189.obj", name: "右第2趾远节趾骨", nameEn: "distal phalanx of right second toe", category: "lower" },
+            { file: "FJ3190.obj", name: "右第3趾远节趾骨", nameEn: "distal phalanx of right third toe", category: "lower" },
+            { file: "FJ3191.obj", name: "右第4趾远节趾骨", nameEn: "distal phalanx of right fourth toe", category: "lower" },
+            { file: "FJ3192.obj", name: "右拇趾远节趾骨", nameEn: "distal phalanx of right big toe", category: "lower" },
+            { file: "FJ3193.obj", name: "右食指远节指骨", nameEn: "distal phalanx of right index finger", category: "upper" },
+            { file: "FJ3194.obj", name: "右小指远节指骨", nameEn: "distal phalanx of right little finger", category: "upper" },
+            { file: "FJ3195.obj", name: "右第5趾远节趾骨", nameEn: "distal phalanx of right little toe", category: "lower" },
+            { file: "FJ3196.obj", name: "右中指中节指骨", nameEn: "distal phalanx of right middle finger", category: "upper" },
+            { file: "FJ3197.obj", name: "右环指远节指骨", nameEn: "distal phalanx of right ring finger", category: "upper" },
+            { file: "FJ3198.obj", name: "右拇指远节指骨", nameEn: "distal phalanx of right thumb", category: "upper" },
+            { file: "FJ3199.obj", name: "筛骨", nameEn: "ethmoid", category: "skull" },
+            { file: "FJ3200.obj", name: "额骨", nameEn: "frontal bone", category: "skull" },
+            { file: "FJ3201.obj", name: "舌骨", nameEn: "hyoid bone", category: "skull" },
+            { file: "FJ3225.obj", name: "左肋10", nameEn: "left tenth rib", category: "ribs" },
+            { file: "FJ3226.obj", name: "左肋11", nameEn: "left eleventh rib", category: "ribs" },
+            { file: "FJ3227.obj", name: "左肋12", nameEn: "left twelfth rib", category: "ribs" },
+            { file: "FJ3228.obj", name: "左肋1", nameEn: "left first rib", category: "ribs" },
+            { file: "FJ3229.obj", name: "左肋2", nameEn: "left second rib", category: "ribs" },
+            { file: "FJ3230.obj", name: "左肋3", nameEn: "left third rib", category: "ribs" },
+            { file: "FJ3231.obj", name: "左肋4", nameEn: "left fourth rib", category: "ribs" },
+            { file: "FJ3232.obj", name: "左肋5", nameEn: "left fifth rib", category: "ribs" },
+            { file: "FJ3233.obj", name: "左肋6", nameEn: "left sixth rib", category: "ribs" },
+            { file: "FJ3234.obj", name: "左肋7", nameEn: "left seventh rib", category: "ribs" },
+            { file: "FJ3235.obj", name: "左肋8", nameEn: "left eighth rib", category: "ribs" },
+            { file: "FJ3236.obj", name: "左肋9", nameEn: "left ninth rib", category: "ribs" },
+            { file: "FJ3237.obj", name: "左锁骨", nameEn: "left clavicle", category: "upper" },
+            { file: "FJ3240.obj", name: "左掌骨1", nameEn: "left first metacarpal bone", category: "upper" },
+            { file: "FJ3241.obj", name: "左跖骨1", nameEn: "left first metatarsal bone", category: "lower" },
+            { file: "FJ3243.obj", name: "左掌骨2", nameEn: "left second metacarpal bone", category: "upper" },
+            { file: "FJ3244.obj", name: "左跖骨2", nameEn: "left second metatarsal bone", category: "lower" },
+            { file: "FJ3246.obj", name: "左掌骨3", nameEn: "left third metacarpal bone", category: "upper" },
+            { file: "FJ3247.obj", name: "左跖骨3", nameEn: "left third metatarsal bone", category: "lower" },
+            { file: "FJ3249.obj", name: "左掌骨4", nameEn: "left fourth metacarpal bone", category: "upper" },
+            { file: "FJ3250.obj", name: "左跖骨4", nameEn: "left fourth metatarsal bone", category: "lower" },
+            { file: "FJ3252.obj", name: "左掌骨5", nameEn: "left fifth metacarpal bone", category: "upper" },
+            { file: "FJ3253.obj", name: "左跖骨5", nameEn: "left fifth metatarsal bone", category: "lower" },
+            { file: "FJ3256.obj", name: "左跟骨", nameEn: "left calcaneus", category: "lower" },
+            { file: "FJ3257.obj", name: "左头状骨", nameEn: "left capitate", category: "upper" },
+            { file: "FJ3258.obj", name: "左骰骨", nameEn: "left cuboid bone", category: "lower" },
+            { file: "FJ3259.obj", name: "左股骨", nameEn: "left femur", category: "lower" },
+            { file: "FJ3260.obj", name: "左腓骨", nameEn: "left fibula", category: "lower" },
+            { file: "FJ3261.obj", name: "左钩骨", nameEn: "left hamate", category: "upper" },
+            { file: "FJ3262.obj", name: "左肱骨", nameEn: "left humerus", category: "upper" },
+            { file: "FJ3263.obj", name: "左下鼻甲", nameEn: "left inferior nasal concha", category: "skull" },
+            { file: "FJ3264.obj", name: "左中间楔骨", nameEn: "left intermediate cuneiform bone", category: "lower" },
+            { file: "FJ3265.obj", name: "左泪骨", nameEn: "left lacrimal bone", category: "skull" },
+            { file: "FJ3267.obj", name: "左外侧楔骨", nameEn: "left lateral cuneiform bone", category: "lower" },
+            { file: "FJ3268.obj", name: "左月骨", nameEn: "left lunate", category: "upper" },
+            { file: "FJ3269.obj", name: "左上颌骨", nameEn: "left maxilla", category: "skull" },
+            { file: "FJ3271.obj", name: "左内侧楔骨", nameEn: "left medial cuneiform bone", category: "lower" },
+            { file: "FJ3272.obj", name: "左鼻骨", nameEn: "left nasal bone", category: "skull" },
+            { file: "FJ3273.obj", name: "左腭骨", nameEn: "left palatine bone", category: "skull" },
+            { file: "FJ3274.obj", name: "左顶骨", nameEn: "left parietal bone", category: "skull" },
+            { file: "FJ3275.obj", name: "左髌骨", nameEn: "left patella", category: "lower" },
+            { file: "FJ3276.obj", name: "左豌豆骨", nameEn: "left pisiform", category: "upper" },
+            { file: "FJ3277.obj", name: "左桡骨", nameEn: "left radius", category: "upper" },
+            { file: "FJ3278.obj", name: "左手舟骨", nameEn: "left scaphoid", category: "upper" },
+            { file: "FJ3279.obj", name: "左肩胛骨", nameEn: "left scapula", category: "upper" },
+            { file: "FJ3280.obj", name: "左距骨", nameEn: "left talus", category: "lower" },
+            { file: "FJ3281.obj", name: "左颞骨", nameEn: "left temporal bone", category: "skull" },
+            { file: "FJ3282.obj", name: "左胫骨", nameEn: "left tibia", category: "lower" },
+            { file: "FJ3283.obj", name: "左大多角骨", nameEn: "left trapezium", category: "upper" },
+            { file: "FJ3284.obj", name: "左小多角骨", nameEn: "left trapezoid", category: "upper" },
+            { file: "FJ3285.obj", name: "左三角骨", nameEn: "left triquetral", category: "upper" },
+            { file: "FJ3286.obj", name: "左尺骨", nameEn: "left ulna", category: "upper" },
+            { file: "FJ3287.obj", name: "左颧骨", nameEn: "left zygomatic bone", category: "skull" },
+            { file: "FJ3288.obj", name: "左髋骨", nameEn: "left hip bone", category: "lower" },
+            { file: "FJ3289.obj", name: "下颌骨", nameEn: "mandible", category: "skull" },
+            { file: "FJ3290.obj", name: "胸骨", nameEn: "sternum", category: "ribs" },
+            { file: "FJ3291.obj", name: "左环指中节指骨", nameEn: "middle phalanx of left ring finger", category: "upper" },
+            { file: "FJ3292.obj", name: "右环指中节指骨", nameEn: "middle phalanx of right ring finger", category: "upper" },
+            { file: "FJ3293.obj", name: "左第2趾中节趾骨", nameEn: "middle phalanx of left second toe", category: "lower" },
+            { file: "FJ3294.obj", name: "左第3趾中节趾骨", nameEn: "middle phalanx of left third toe", category: "lower" },
+            { file: "FJ3295.obj", name: "左第4趾中节趾骨", nameEn: "middle phalanx of left fourth toe", category: "lower" },
+            { file: "FJ3296.obj", name: "左食指中节指骨", nameEn: "middle phalanx of left index finger", category: "upper" },
+            { file: "FJ3297.obj", name: "左小指中节指骨", nameEn: "middle phalanx of left little finger", category: "upper" },
+            { file: "FJ3298.obj", name: "左第5趾中节趾骨", nameEn: "middle phalanx of left little toe", category: "lower" },
+            { file: "FJ3299.obj", name: "左中指中节指骨", nameEn: "middle phalanx of left middle finger", category: "upper" },
+            { file: "FJ3300.obj", name: "右第2趾中节趾骨", nameEn: "middle phalanx of right second toe", category: "lower" },
+            { file: "FJ3301.obj", name: "右第3趾中节趾骨", nameEn: "middle phalanx of right third toe", category: "lower" },
+            { file: "FJ3302.obj", name: "右第4趾中节趾骨", nameEn: "middle phalanx of right fourth toe", category: "lower" },
+            { file: "FJ3303.obj", name: "右食指中节指骨", nameEn: "middle phalanx of right index finger", category: "upper" },
+            { file: "FJ3304.obj", name: "右小指中节指骨", nameEn: "middle phalanx of right little finger", category: "upper" },
+            { file: "FJ3305.obj", name: "右第5趾中节趾骨", nameEn: "middle phalanx of right little toe", category: "lower" },
+            { file: "FJ3306.obj", name: "右中指中节指骨", nameEn: "middle phalanx of right middle finger", category: "upper" },
+            { file: "FJ3307.obj", name: "左足舟骨", nameEn: "navicular bone of left foot", category: "lower" },
+            { file: "FJ3308.obj", name: "右足舟骨", nameEn: "navicular bone of right foot", category: "lower" },
+            { file: "FJ3309.obj", name: "枕骨", nameEn: "occipital bone", category: "skull" },
+            { file: "FJ3310.obj", name: "右拇趾近节趾骨", nameEn: "proximal phalanx of right big toe", category: "lower" },
+            { file: "FJ3311.obj", name: "左第3趾近节趾骨", nameEn: "proximal phalanx of left third toe", category: "lower" },
+            { file: "FJ3312.obj", name: "左第4趾近节趾骨", nameEn: "proximal phalanx of left fourth toe", category: "lower" },
+            { file: "FJ3313.obj", name: "左食指近节指骨", nameEn: "proximal phalanx of left index finger", category: "upper" },
+            { file: "FJ3314.obj", name: "左小指近节指骨", nameEn: "proximal phalanx of left little finger", category: "upper" },
+            { file: "FJ3315.obj", name: "左第5趾近节趾骨", nameEn: "proximal phalanx of left little toe", category: "lower" },
+            { file: "FJ3316.obj", name: "左中指近节指骨", nameEn: "proximal phalanx of left middle finger", category: "upper" },
+            { file: "FJ3317.obj", name: "左环指近节指骨", nameEn: "proximal phalanx of left ring finger", category: "upper" },
+            { file: "FJ3318.obj", name: "左拇指近节指骨", nameEn: "proximal phalanx of left thumb", category: "upper" },
+            { file: "FJ3319.obj", name: "右第2趾近节趾骨", nameEn: "proximal phalanx of right second toe", category: "lower" },
+            { file: "FJ3320.obj", name: "右第3趾近节趾骨", nameEn: "proximal phalanx of right third toe", category: "lower" },
+            { file: "FJ3321.obj", name: "右第4趾近节趾骨", nameEn: "proximal phalanx of right fourth toe", category: "lower" },
+            { file: "FJ3322.obj", name: "右食指近节指骨", nameEn: "proximal phalanx of right index finger", category: "upper" },
+            { file: "FJ3323.obj", name: "右小指近节指骨", nameEn: "proximal phalanx of right little finger", category: "upper" },
+            { file: "FJ3324.obj", name: "右第5趾近节趾骨", nameEn: "proximal phalanx of right little toe", category: "lower" },
+            { file: "FJ3325.obj", name: "右中指近节指骨", nameEn: "proximal phalanx of right middle finger", category: "upper" },
+            { file: "FJ3326.obj", name: "右环指近节指骨", nameEn: "proximal phalanx of right ring finger", category: "upper" },
+            { file: "FJ3327.obj", name: "右拇指近节指骨", nameEn: "proximal phalanx of right thumb", category: "upper" },
+            { file: "FJ3328.obj", name: "左第2趾近节趾骨", nameEn: "proximal phalanx of left second toe", category: "lower" },
+            { file: "FJ3329.obj", name: "左拇趾近节趾骨", nameEn: "proximal phalanx of left big toe", category: "lower" },
+            { file: "FJ3330.obj", name: "右肋10", nameEn: "right tenth rib", category: "ribs" },
+            { file: "FJ3331.obj", name: "右肋11", nameEn: "right eleventh rib", category: "ribs" },
+            { file: "FJ3332.obj", name: "右肋12", nameEn: "right twelfth rib", category: "ribs" },
+            { file: "FJ3334.obj", name: "右肋1", nameEn: "right first rib", category: "ribs" },
+            { file: "FJ3336.obj", name: "右肋2", nameEn: "right second rib", category: "ribs" },
+            { file: "FJ3338.obj", name: "右肋3", nameEn: "right third rib", category: "ribs" },
+            { file: "FJ3340.obj", name: "右肋4", nameEn: "right fourth rib", category: "ribs" },
+            { file: "FJ3342.obj", name: "右肋5", nameEn: "right fifth rib", category: "ribs" },
+            { file: "FJ3344.obj", name: "右肋6", nameEn: "right sixth rib", category: "ribs" },
+            { file: "FJ3346.obj", name: "右肋7", nameEn: "right seventh rib", category: "ribs" },
+            { file: "FJ3347.obj", name: "右肋8", nameEn: "right eighth rib", category: "ribs" },
+            { file: "FJ3348.obj", name: "右肋9", nameEn: "right ninth rib", category: "ribs" },
+            { file: "FJ3349.obj", name: "右桡骨", nameEn: "right radius", category: "upper" },
+            { file: "FJ3350.obj", name: "右掌骨1", nameEn: "right first metacarpal bone", category: "upper" },
+            { file: "FJ3351.obj", name: "右跖骨1", nameEn: "right first metatarsal bone", category: "lower" },
+            { file: "FJ3352.obj", name: "右掌骨2", nameEn: "right second metacarpal bone", category: "upper" },
+            { file: "FJ3353.obj", name: "右跖骨2", nameEn: "right second metatarsal bone", category: "lower" },
+            { file: "FJ3354.obj", name: "右掌骨3", nameEn: "right third metacarpal bone", category: "upper" },
+            { file: "FJ3355.obj", name: "右跖骨3", nameEn: "right third metatarsal bone", category: "lower" },
+            { file: "FJ3356.obj", name: "右掌骨4", nameEn: "right fourth metacarpal bone", category: "upper" },
+            { file: "FJ3357.obj", name: "右跖骨4", nameEn: "right fourth metatarsal bone", category: "lower" },
+            { file: "FJ3358.obj", name: "右掌骨5", nameEn: "right fifth metacarpal bone", category: "upper" },
+            { file: "FJ3359.obj", name: "右跖骨5", nameEn: "right fifth metatarsal bone", category: "lower" },
+            { file: "FJ3360.obj", name: "右跟骨", nameEn: "right calcaneus", category: "lower" },
+            { file: "FJ3361.obj", name: "右头状骨", nameEn: "right capitate", category: "upper" },
+            { file: "FJ3362.obj", name: "右锁骨", nameEn: "right clavicle", category: "upper" },
+            { file: "FJ3364.obj", name: "右骰骨", nameEn: "right cuboid bone", category: "lower" },
+            { file: "FJ3365.obj", name: "右股骨", nameEn: "right femur", category: "lower" },
+            { file: "FJ3366.obj", name: "右腓骨", nameEn: "right fibula", category: "lower" },
+            { file: "FJ3367.obj", name: "右钩骨", nameEn: "right hamate", category: "upper" },
+            { file: "FJ3368.obj", name: "右肱骨", nameEn: "right humerus", category: "upper" },
+            { file: "FJ3369.obj", name: "右下鼻甲", nameEn: "right inferior nasal concha", category: "skull" },
+            { file: "FJ3370.obj", name: "右中间楔骨", nameEn: "right intermediate cuneiform bone", category: "lower" },
+            { file: "FJ3371.obj", name: "右泪骨", nameEn: "right lacrimal bone", category: "skull" },
+            { file: "FJ3373.obj", name: "右外侧楔骨", nameEn: "right lateral cuneiform bone", category: "lower" },
+            { file: "FJ3374.obj", name: "右月骨", nameEn: "right lunate", category: "upper" },
+            { file: "FJ3375.obj", name: "右上颌骨", nameEn: "right maxilla", category: "skull" },
+            { file: "FJ3377.obj", name: "右内侧楔骨", nameEn: "right medial cuneiform bone", category: "lower" },
+            { file: "FJ3378.obj", name: "右鼻骨", nameEn: "right nasal bone", category: "skull" },
+            { file: "FJ3379.obj", name: "右腭骨", nameEn: "right palatine bone", category: "skull" },
+            { file: "FJ3380.obj", name: "右顶骨", nameEn: "right parietal bone", category: "skull" },
+            { file: "FJ3381.obj", name: "右髌骨", nameEn: "right patella", category: "lower" },
+            { file: "FJ3382.obj", name: "右豌豆骨", nameEn: "right pisiform", category: "upper" },
+            { file: "FJ3383.obj", name: "右手舟骨", nameEn: "right scaphoid", category: "upper" },
+            { file: "FJ3384.obj", name: "右肩胛骨", nameEn: "right scapula", category: "upper" },
+            { file: "FJ3385.obj", name: "右距骨", nameEn: "right talus", category: "lower" },
+            { file: "FJ3386.obj", name: "右颞骨", nameEn: "right temporal bone", category: "skull" },
+            { file: "FJ3387.obj", name: "右胫骨", nameEn: "right tibia", category: "lower" },
+            { file: "FJ3388.obj", name: "右大多角骨", nameEn: "right trapezium", category: "upper" },
+            { file: "FJ3389.obj", name: "右小多角骨", nameEn: "right trapezoid", category: "upper" },
+            { file: "FJ3390.obj", name: "右三角骨", nameEn: "right triquetral", category: "upper" },
+            { file: "FJ3391.obj", name: "右尺骨", nameEn: "right ulna", category: "upper" },
+            { file: "FJ3392.obj", name: "右颧骨", nameEn: "right zygomatic bone", category: "skull" },
+            { file: "FJ3393.obj", name: "骶骨", nameEn: "sacrum", category: "spine" },
+            { file: "FJ3394.obj", name: "蝶骨", nameEn: "sphenoid bone", category: "skull" },
+            { file: "FJ3395.obj", name: "犁骨", nameEn: "vomer", category: "skull" }
+        ];
+
+        // Three.js 场景变量
+        let scene, camera, renderer, controls, raycaster, mouse;
+        let loadedModels = new Map();
+        let currentHighlight = null;
+        let currentListItem = null;
+        let isLoading = true;
+
+        const categoryLabels = {
+            skull: '颅骨', spine: '脊柱', ribs: '胸廓',
+            upper: '上肢', lower: '下肢'
+        };
+
+        function init() {
+            const container = document.getElementById('canvas-container');
+            
+            scene = new THREE.Scene();
+            scene.background = new THREE.Color(0x0a0a0f);
+            
+            camera = new THREE.PerspectiveCamera(45, window.innerWidth / window.innerHeight, 0.1, 1000);
+            camera.position.set(0, 120, 300);
+            
+            renderer = new THREE.WebGLRenderer({ antialias: true });
+            renderer.setSize(window.innerWidth, window.innerHeight);
+            renderer.setPixelRatio(window.devicePixelRatio);
+            renderer.shadowMap.enabled = true;
+            renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+            container.appendChild(renderer.domElement);
+            
+            // 灯光
+            const ambientLight = new THREE.AmbientLight(0xffffff, 0.4);
+            scene.add(ambientLight);
+            
+            const mainLight = new THREE.DirectionalLight(0xffffff, 0.8);
+            mainLight.position.set(50, 100, 50);
+            mainLight.castShadow = true;
+            mainLight.shadow.mapSize.width = 2048;
+            mainLight.shadow.mapSize.height = 2048;
+            scene.add(mainLight);
+            
+            const fillLight = new THREE.DirectionalLight(0x8b9dc3, 0.3);
+            fillLight.position.set(-50, 0, -50);
+            scene.add(fillLight);
+            
+            const rimLight = new THREE.DirectionalLight(0xffffff, 0.2);
+            rimLight.position.set(0, -50, -100);
+            scene.add(rimLight);
+            
+            // 控制器
+            controls = new THREE.OrbitControls(camera, renderer.domElement);
+            controls.enableDamping = true;
+            controls.dampingFactor = 0.05;
+            controls.target.set(0, 70, 0);
+            
+            raycaster = new THREE.Raycaster();
+            mouse = new THREE.Vector2();
+            
+            window.addEventListener('resize', onWindowResize);
+            renderer.domElement.addEventListener('click', onCanvasClick);
+            renderer.domElement.addEventListener('mousemove', onMouseMove);
+            
+            createBoneList();
+            loadAllModels();
+            animate();
+        }
+
+        function createBoneList() {
+            const listContainer = document.getElementById('bone-list');
+            const categories = {};
+            
+            boneModels.forEach((bone, index) => {
+                bone.index = index;
+                if (!categories[bone.category]) categories[bone.category] = [];
+                categories[bone.category].push(bone);
+            });
+            
+            Object.keys(categoryLabels).forEach(cat => {
+                if (categories[cat]) {
+                    const title = document.createElement('div');
+                    title.className = 'section-title';
+                    title.textContent = categoryLabels[cat] + ` (${categories[cat].length})`;
+                    listContainer.appendChild(title);
+                    
+                    categories[cat].forEach(bone => {
+                        const item = document.createElement('div');
+                        item.className = 'bone-item';
+                        item.dataset.index = bone.index;
+                        item.innerHTML = `<span class="cn-name">${bone.name}</span><span class="en-name">${bone.nameEn}</span>`;
+                        item.title = bone.nameEn;
+                        item.onclick = () => focusOnBone(bone.index);
+                        listContainer.appendChild(item);
+                    });
+                }
+            });
+            
+            document.getElementById('total-count').textContent = boneModels.length;
+        }
+
+        async function loadModel(boneInfo) {
+            return new Promise((resolve, reject) => {
+                const loader = new THREE.OBJLoader();
+                const filePath = `partof_BP3D_4.0_obj_99/${boneInfo.file}`;
+                
+                loader.load(
+                    filePath,
+                    (object) => {
+                        object.traverse((child) => {
+                            if (child.isMesh) {
+                                child.material = new THREE.MeshStandardMaterial({
+                                    color: 0xe8dcc8, roughness: 0.7, metalness: 0.1
+                                });
+                                child.castShadow = true;
+                                child.receiveShadow = true;
+                                child.userData.boneIndex = boneInfo.index;
+                                child.userData.boneName = boneInfo.name;
+                            }
+                        });
+                        
+                        object.scale.set(0.1, 0.1, 0.1);
+                        object.rotation.x = -Math.PI / 2;
+                        
+                        object.userData.boneIndex = boneInfo.index;
+                        object.userData.boneName = boneInfo.name;
+                        
+                        scene.add(object);
+                        loadedModels.set(boneInfo.index, object);
+                        
+                        const listItem = document.querySelector(`.bone-item[data-index="${boneInfo.index}"]`);
+                        if (listItem) listItem.classList.add('loaded');
+                        
+                        resolve(object);
+                    },
+                    undefined,
+                    (error) => {
+                        console.warn(`Failed to load ${boneInfo.file}`);
+                        reject(error);
+                    }
+                );
+            });
+        }
+
+        async function loadAllModels() {
+            const batchSize = 5;
+            let loadedCount = 0;
+            const total = boneModels.length;
+            
+            for (let i = 0; i < total; i += batchSize) {
+                const batch = boneModels.slice(i, i + batchSize);
+                const promises = batch.map((bone) => {
+                    return loadModel(bone).then(() => {
+                        loadedCount++;
+                        updateLoadingProgress(loadedCount, total, bone.name);
+                    }).catch(() => {
+                        loadedCount++;
+                        updateLoadingProgress(loadedCount, total, bone.name);
+                    });
+                });
+                
+                await Promise.all(promises);
+                await new Promise(resolve => setTimeout(resolve, 10));
+            }
+            
+            setTimeout(() => {
+                document.getElementById('loading').style.opacity = '0';
+                setTimeout(() => document.getElementById('loading').style.display = 'none', 500);
+                isLoading = false;
+            }, 500);
+            
+            document.getElementById('loaded-count').textContent = loadedCount;
+        }
+
+        function updateLoadingProgress(current, total, currentName) {
+            const percent = Math.round((current / total) * 100);
+            document.getElementById('progress-fill').style.width = `${percent}%`;
+            document.getElementById('loading-status').textContent = 
+                `加载中... ${current}/${total} (${percent}%) - ${currentName}`;
+            document.getElementById('loaded-count').textContent = current;
+        }
+
+        function focusOnBone(index) {
+            const object = loadedModels.get(index);
+            if (!object) return;
+            
+            clearHighlight();
+            highlightModel(object);
+            currentHighlight = object;
+            
+            const bone = boneModels[index];
+            updateInfoPanel(bone);
+            highlightListItem(index);
+            currentListItem = index;
+            
+            const box = new THREE.Box3().setFromObject(object);
+            const center = box.getCenter(new THREE.Vector3());
+            const size = box.getSize(new THREE.Vector3());
+            const distance = Math.max(size.x, size.y, size.z) * 3;
+            
+            const startPos = camera.position.clone();
+            const endPos = new THREE.Vector3(center.x + distance, center.y + distance * 0.5, center.z + distance);
+            
+            let t = 0;
+            function animateCamera() {
+                if (t >= 1) return;
+                t += 0.05;
+                camera.position.lerpVectors(startPos, endPos, t * (2 - t));
+                controls.target.lerp(center, 0.1);
+                controls.update();
+                requestAnimationFrame(animateCamera);
+            }
+            animateCamera();
+        }
+
+        function highlightModel(object) {
+            object.traverse((child) => {
+                if (child.isMesh && child.material) {
+                    child.material.emissive = new THREE.Color(0x3b82f6);
+                    child.material.emissiveIntensity = 0.3;
+                }
+            });
+        }
+
+        function clearHighlight() {
+            if (currentHighlight) {
+                currentHighlight.traverse((child) => {
+                    if (child.isMesh && child.material) {
+                        child.material.emissive = new THREE.Color(0x000000);
+                        child.material.emissiveIntensity = 0;
+                    }
+                });
+                currentHighlight = null;
+            }
+            
+            if (currentListItem !== null) {
+                const item = document.querySelector(`.bone-item[data-index="${currentListItem}"]`);
+                if (item) item.classList.remove('active');
+                currentListItem = null;
+            }
+        }
+
+        function highlightListItem(index) {
+            const items = document.querySelectorAll('.bone-item');
+            items.forEach(item => item.classList.remove('active'));
+            
+            const targetItem = document.querySelector(`.bone-item[data-index="${index}"]`);
+            if (targetItem) {
+                targetItem.classList.add('active');
+                targetItem.scrollIntoView({ behavior: 'smooth', block: 'center' });
+            }
+        }
+
+        function updateInfoPanel(bone) {
+            document.getElementById('info-content').innerHTML = `
+                <div style="margin-bottom: 16px;">
+                    <div style="font-size: 22px; font-weight: 700; color: white; margin-bottom: 4px;">${bone.name}</div>
+                    <div style="font-size: 14px; color: #71717a; font-style: italic;">${bone.nameEn}</div>
+                </div>
+                <div style="margin-bottom: 12px; padding: 12px; background: rgba(255,255,255,0.03); border-radius: 8px;">
+                    <div style="font-size: 11px; color: #71717a; margin-bottom: 4px;">文件名</div>
+                    <div style="font-size: 13px; color: #e4e4e7; font-family: monospace;">${bone.file}</div>
+                </div>
+                <div style="margin-bottom: 12px; padding: 12px; background: rgba(255,255,255,0.03); border-radius: 8px;">
+                    <div style="font-size: 11px; color: #71717a; margin-bottom: 4px;">分类</div>
+                    <div style="font-size: 13px; color: #e4e4e7;">${categoryLabels[bone.category]}</div>
+                </div>
+                <div style="font-size: 12px; color: #71717a; margin-top: 20px; padding-top: 16px; border-top: 1px solid rgba(255,255,255,0.1);">
+                    数据来源：BodyParts3D<br>
+                    © The Database Center for Life Science<br>
+                    许可协议：CC Attribution-Share Alike 2.1 Japan
+                </div>
+            `;
+        }
+
+        function onCanvasClick(event) {
+            if (isLoading) return;
+            
+            mouse.x = (event.clientX / window.innerWidth) * 2 - 1;
+            mouse.y = -(event.clientY / window.innerHeight) * 2 + 1;
+            
+            raycaster.setFromCamera(mouse, camera);
+            
+            const objects = [];
+            loadedModels.forEach(obj => objects.push(obj));
+            
+            const intersects = raycaster.intersectObjects(objects, true);
+            
+            if (intersects.length > 0) {
+                let target = intersects[0].object;
+                while (target.parent && target.parent.type !== 'Scene') {
+                    if (target.userData.boneIndex !== undefined) break;
+                    target = target.parent;
+                }
+                
+                const boneIndex = target.userData?.boneIndex;
+                if (boneIndex !== undefined) {
+                    clearHighlight();
+                    highlightModel(target);
+                    currentHighlight = target;
+                    highlightListItem(boneIndex);
+                    currentListItem = boneIndex;
+                    updateInfoPanel(boneModels[boneIndex]);
+                }
+            }
+        }
+
+        function onMouseMove(event) {
+            const tooltip = document.getElementById('tooltip');
+            
+            if (isLoading) {
+                tooltip.style.display = 'none';
+                return;
+            }
+            
+            mouse.x = (event.clientX / window.innerWidth) * 2 - 1;
+            mouse.y = -(event.clientY / window.innerHeight) * 2 + 1;
+            
+            raycaster.setFromCamera(mouse, camera);
+            
+            const objects = [];
+            loadedModels.forEach(obj => objects.push(obj));
+            
+            const intersects = raycaster.intersectObjects(objects, true);
+            
+            if (intersects.length > 0) {
+                let target = intersects[0].object;
+                while (target.parent && target.parent.type !== 'Scene') {
+                    if (target.userData.boneName) break;
+                    target = target.parent;
+                }
+                
+                const boneName = target.userData?.boneName;
+                if (boneName) {
+                    tooltip.textContent = boneName;
+                    tooltip.style.display = 'block';
+                    tooltip.style.left = (event.clientX + 15) + 'px';
+                    tooltip.style.top = (event.clientY + 15) + 'px';
+                    renderer.domElement.style.cursor = 'pointer';
+                } else {
+                    tooltip.style.display = 'none';
+                    renderer.domElement.style.cursor = 'default';
+                }
+            } else {
+                tooltip.style.display = 'none';
+                renderer.domElement.style.cursor = 'default';
+            }
+        }
+
+        function onWindowResize() {
+            camera.aspect = window.innerWidth / window.innerHeight;
+            camera.updateProjectionMatrix();
+            renderer.setSize(window.innerWidth, window.innerHeight);
+        }
+
+        function animate() {
+            requestAnimationFrame(animate);
+            controls.update();
+            renderer.render(scene, camera);
+        }
+
+        // 移动端侧边栏控制
+        (function setupMobileControls() {
+            const sidebar = document.querySelector('.sidebar');
+            const infoPanel = document.querySelector('.info-panel');
+            const overlay = document.getElementById('overlay');
+            const toggleList = document.getElementById('toggle-list');
+            const toggleInfo = document.getElementById('toggle-info');
+            
+            function closeAll() {
+                sidebar?.classList.remove('open');
+                infoPanel?.classList.remove('open');
+                overlay?.classList.remove('show');
+            }
+            
+            toggleList?.addEventListener('click', () => {
+                sidebar.classList.toggle('open');
+                infoPanel.classList.remove('open');
+                overlay.classList.toggle('show', sidebar.classList.contains('open'));
+            });
+            
+            toggleInfo?.addEventListener('click', () => {
+                infoPanel.classList.toggle('open');
+                sidebar.classList.remove('open');
+                overlay.classList.toggle('show', infoPanel.classList.contains('open'));
+            });
+            
+            overlay?.addEventListener('click', closeAll);
+            
+            // 点击列表项后自动关闭侧边栏（移动端）
+            document.getElementById('bone-list')?.addEventListener('click', (e) => {
+                if (e.target.closest('.bone-item') && window.innerWidth <= 768) {
+                    closeAll();
+                }
+            });
+        })();
+        
+        // 搜索功能 - 支持中英文
+        document.getElementById('search-box')?.addEventListener('input', function(e) {
+            const term = e.target.value.toLowerCase();
+            const items = document.querySelectorAll('.bone-item');
+            
+            items.forEach(item => {
+                const cnText = item.querySelector('.cn-name')?.textContent.toLowerCase() || '';
+                const enText = item.querySelector('.en-name')?.textContent.toLowerCase() || '';
+                if (cnText.includes(term) || enText.includes(term)) {
+                    item.style.display = 'flex';
+                } else {
+                    item.style.display = 'none';
+                }
+            });
+        });
+
+        init();
+    </script>
+</body>
+</html>

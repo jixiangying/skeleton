@@ -1,0 +1,51 @@
+# macOS系统文件
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+# 编辑器配置
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+
+# 日志文件
+*.log
+npm-debug.log*
+
+# 临时文件
+tmp/
+temp/
+*.tmp
+
+# 参考资料（可从官网下载）
+data/
+
+# 大型数据文件（可选：如果不需要将模型提交到git）
+# 取消注释以下行如果模型文件夹太大
+# partof_BP3D_4.0_obj_99/
+
+# 备份文件
+*.bak
+*.backup
+
+# 生成的文件
+*.generated.js
+*.generated.html
+
+# Git LFS 配置相关（一次性使用）
+setup-git-lfs.sh
+GIT_LFS_SETUP.md
+MOBILE_OPTIMIZATION.md

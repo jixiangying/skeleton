@@ -45,7 +45,7 @@ Anatomy/
 
 ### 在线访问（推荐）
 
-🌐 **GitHub Pages**: https://jixiangying.github.io/anatomy/
+🌐 **GitHub Pages**: https://jixiangying.github.io/skeleton/
 
 无需安装，直接在浏览器中访问即可查看3D人体骨骼模型。
 
@@ -54,8 +54,8 @@ Anatomy/
 如需本地修改或开发：
 
 ```bash
-git clone https://github.com/jixiangying/anatomy.git
-cd anatomy
+git clone https://github.com/jixiangying/skeleton.git
+cd skeleton
 python3 -m http.server 3000
 # 浏览器访问 http://localhost:3000
 ```

@@ -14,6 +14,7 @@
     <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
     <script src="js/OrbitControls.js"></script>
     <script src="js/OBJLoader.js"></script>
+    <script src="js/ModelCache.js"></script>
     <style>
         * { margin: 0; padding: 0; box-sizing: border-box; }
         body {
@@ -119,6 +120,42 @@
             border-left-color: #3b82f6;
         }
         .bone-item.loaded { border-left-color: #10b981; }
+        .bone-item.cached { border-left-color: #f59e0b; }
+        .cache-indicator {
+            position: fixed;
+            bottom: 20px;
+            right: 20px;
+            z-index: 100;
+            padding: 10px 16px;
+            font-size: 12px;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+        .cache-dot {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            background: #10b981;
+            animation: pulse 2s infinite;
+        }
+        .cache-dot.inactive { background: #71717a; animation: none; }
+        @keyframes pulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.5; }
+        }
+        .cache-stats {
+            position: fixed;
+            bottom: 70px;
+            right: 20px;
+            z-index: 100;
+            padding: 12px 16px;
+            font-size: 11px;
+            color: #a1a1aa;
+            max-width: 200px;
+            display: none;
+        }
+        .cache-stats.show { display: block; }
         .bone-item .en-name {
             font-size: 10px;
             color: #71717a;
@@ -280,8 +317,125 @@
         <div class="stat-item"><div class="stat-value" id="loaded-count">0</div><div class="stat-label">已加载</div></div>
         <div class="stat-item"><div class="stat-value" id="total-count">0</div><div class="stat-label">骨骼总数</div></div>
     </div>
+    
+    <!-- 缓存状态指示器 -->
+    <div class="cache-indicator glass-panel" id="cache-indicator" title="点击显示缓存详情" style="cursor: pointer;">
+        <div class="cache-dot" id="cache-dot"></div>
+        <span id="cache-text">缓存就绪</span>
+    </div>
+    <div class="cache-stats glass-panel" id="cache-stats">
+        <div id="cache-detail">正在初始化...</div>
+    </div>
 
     <script>
+        // ==================== Service Worker 注册 ====================
+        if ('serviceWorker' in navigator) {
+            window.addEventListener('load', () => {
+                navigator.serviceWorker.register('/sw.js')
+                    .then(registration => {
+                        console.log('[SW] Registered:', registration.scope);
+                        
+                        // 检查更新
+                        registration.addEventListener('updatefound', () => {
+                            const newWorker = registration.installing;
+                            newWorker.addEventListener('statechange', () => {
+                                if (newWorker.state === 'installed' && navigator.serviceWorker.controller) {
+                                    console.log('[SW] New version available');
+                                    // 可以在这里提示用户刷新
+                                }
+                            });
+                        });
+                    })
+                    .catch(error => console.error('[SW] Registration failed:', error));
+            });
+        }
+
+        // ==================== 缓存管理 ====================
+        const modelCache = new ModelCache();
+        let useIndexedDBCache = true; // 是否启用IndexedDB缓存
+        let cacheStats = { hit: 0, miss: 0, fromMemory: 0 };
+
+        // 初始化缓存
+        async function initCache() {
+            // 添加超时保护，如果 IndexedDB 初始化超过3秒就跳过
+            const timeoutPromise = new Promise((_, reject) => {
+                setTimeout(() => reject(new Error('IndexedDB init timeout')), 3000);
+            });
+            
+            try {
+                await Promise.race([modelCache.init(), timeoutPromise]);
+                updateCacheIndicator(true);
+                console.log('[Cache] Initialized');
+                
+                // 清理过期缓存（在后台进行，不阻塞加载）
+                modelCache.cleanExpiredCache(30).catch(() => {});
+                
+                // 定期更新缓存统计
+                setInterval(updateCacheStats, 5000);
+            } catch (error) {
+                console.warn('[Cache] Initialization failed:', error);
+                useIndexedDBCache = false;
+                updateCacheIndicator(false);
+            }
+        }
+
+        // 更新缓存指示器
+        function updateCacheIndicator(active) {
+            const dot = document.getElementById('cache-dot');
+            const text = document.getElementById('cache-text');
+            if (active) {
+                dot.classList.remove('inactive');
+                text.textContent = '缓存就绪';
+            } else {
+                dot.classList.add('inactive');
+                text.textContent = '缓存关闭';
+            }
+        }
+
+        // 更新缓存统计
+        async function updateCacheStats() {
+            const stats = await modelCache.getStats();
+            const detail = document.getElementById('cache-detail');
+            const hitRate = cacheStats.hit + cacheStats.miss > 0 
+                ? Math.round((cacheStats.hit / (cacheStats.hit + cacheStats.miss)) * 100) 
+                : 0;
+            
+            detail.innerHTML = `
+                <div style="margin-bottom: 4px; color: #fff;">📦 缓存统计</div>
+                <div>磁盘缓存: ${stats.count} 个模型</div>
+                <div>内存缓存: ${stats.memoryCacheCount} 个模型</div>
+                <div>缓存大小: ${stats.totalSize}</div>
+                <div>缓存命中: ${hitRate}% (${cacheStats.hit}/${cacheStats.hit + cacheStats.miss})</div>
+                <div style="margin-top: 8px; font-size: 10px; color: #71717a;">
+                    点击此面板可清除缓存
+                </div>
+            `;
+        }
+
+        // 缓存指示器点击事件
+        document.getElementById('cache-indicator')?.addEventListener('click', async () => {
+            const statsPanel = document.getElementById('cache-stats');
+            statsPanel.classList.toggle('show');
+            if (statsPanel.classList.contains('show')) {
+                await updateCacheStats();
+            }
+        });
+
+        // 清除缓存
+        document.getElementById('cache-stats')?.addEventListener('click', async () => {
+            if (confirm('确定要清除所有缓存吗？下次加载将重新下载模型。')) {
+                await modelCache.clearAll();
+                // 通知 Service Worker 清除缓存
+                if ('serviceWorker' in navigator && navigator.serviceWorker.controller) {
+                    navigator.serviceWorker.controller.postMessage({ type: 'clear-model-cache' });
+                }
+                cacheStats = { hit: 0, miss: 0, fromMemory: 0 };
+                alert('缓存已清除');
+                location.reload();
+            }
+        });
+
+        // ==================== 模型数据 ====================
         const boneModels = [
             { file: "FJ2772.obj", name: "舌骨", nameEn: "hyoid bone", category: "skull" },
             { file: "FJ3152.obj", name: "右髋骨", nameEn: "right hip bone", category: "lower" },
@@ -499,7 +653,10 @@
             upper: '上肢', lower: '下肢'
         };
 
-        function init() {
+        async function init() {
+            // 初始化缓存系统
+            await initCache();
+            
             const container = document.getElementById('canvas-container');
             
             scene = new THREE.Scene();
@@ -584,7 +741,7 @@
             renderer.domElement.addEventListener('mousemove', onMouseMove);
             
             createBoneList();
-            loadAllModels();
+            await loadAllModels();
             animate();
         }
 
@@ -620,15 +777,148 @@
             document.getElementById('total-count').textContent = boneModels.length;
         }
 
+        // 从几何体数据创建Three.js对象
+        function createObjectFromGeometry(geometryData, boneInfo) {
+            const geometry = new THREE.BufferGeometry();
+            
+            geometry.setAttribute('position', new THREE.BufferAttribute(geometryData.vertices, 3));
+            
+            if (geometryData.normals && geometryData.normals.length > 0) {
+                geometry.setAttribute('normal', new THREE.BufferAttribute(geometryData.normals, 3));
+            } else {
+                geometry.computeVertexNormals();
+            }
+            
+            if (geometryData.uvs && geometryData.uvs.length > 0) {
+                geometry.setAttribute('uv', new THREE.BufferAttribute(geometryData.uvs, 2));
+            }
+            
+            if (geometryData.indices && geometryData.indices.length > 0) {
+                geometry.setIndex(new THREE.BufferAttribute(geometryData.indices, 1));
+            }
+            
+            const material = new THREE.MeshStandardMaterial({
+                color: 0xe8dcc8, roughness: 0.7, metalness: 0.1
+            });
+            
+            const mesh = new THREE.Mesh(geometry, material);
+            mesh.castShadow = true;
+            mesh.receiveShadow = true;
+            mesh.userData.boneIndex = boneInfo.index;
+            mesh.userData.boneName = boneInfo.name;
+            
+            const object = new THREE.Group();
+            object.add(mesh);
+            object.scale.set(0.1, 0.1, 0.1);
+            object.rotation.x = -Math.PI / 2;
+            object.userData.boneIndex = boneInfo.index;
+            object.userData.boneName = boneInfo.name;
+            
+            return object;
+        }
+
+        // 从OBJ对象提取几何体数据
+        function extractGeometryData(object) {
+            let vertices = [];
+            let normals = [];
+            let uvs = [];
+            let indices = [];
+            let vertexOffset = 0;
+            
+            object.traverse((child) => {
+                if (child.isMesh && child.geometry) {
+                    const pos = child.geometry.attributes.position;
+                    const norm = child.geometry.attributes.normal;
+                    const uv = child.geometry.attributes.uv;
+                    const index = child.geometry.index;
+                    
+                    // 复制顶点
+                    for (let i = 0; i < pos.count; i++) {
+                        vertices.push(pos.array[i * 3], pos.array[i * 3 + 1], pos.array[i * 3 + 2]);
+                    }
+                    
+                    // 复制法线
+                    if (norm) {
+                        for (let i = 0; i < norm.count; i++) {
+                            normals.push(norm.array[i * 3], norm.array[i * 3 + 1], norm.array[i * 3 + 2]);
+                        }
+                    }
+                    
+                    // 复制UV
+                    if (uv) {
+                        for (let i = 0; i < uv.count; i++) {
+                            uvs.push(uv.array[i * 2], uv.array[i * 2 + 1]);
+                        }
+                    }
+                    
+                    // 复制索引
+                    if (index) {
+                        for (let i = 0; i < index.count; i++) {
+                            indices.push(index.array[i] + vertexOffset);
+                        }
+                    } else {
+                        // 无索引，生成线性索引
+                        for (let i = 0; i < pos.count; i++) {
+                            indices.push(vertexOffset + i);
+                        }
+                    }
+                    
+                    vertexOffset += pos.count;
+                }
+            });
+            
+            return {
+                vertices: new Float32Array(vertices),
+                normals: new Float32Array(normals),
+                uvs: new Float32Array(uvs),
+                indices: new Uint32Array(indices)
+            };
+        }
+
         async function loadModel(boneInfo) {
+            const filePath = `partof_BP3D_4.0_obj_99/${boneInfo.file}`;
+            
+            // 1. 检查内存缓存
+            if (loadedModels.has(boneInfo.index)) {
+                cacheStats.fromMemory++;
+                return loadedModels.get(boneInfo.index);
+            }
+            
+            // 2. 检查 IndexedDB 缓存
+            if (useIndexedDBCache) {
+                try {
+                    const cachedGeometry = await modelCache.getGeometry(boneInfo.file);
+                    if (cachedGeometry) {
+                        console.log(`[Cache] Loaded from IndexedDB: ${boneInfo.file}`);
+                        cacheStats.hit++;
+                        
+                        const object = createObjectFromGeometry(cachedGeometry, boneInfo);
+                        scene.add(object);
+                        loadedModels.set(boneInfo.index, object);
+                        
+                        const listItem = document.querySelector(`.bone-item[data-index="${boneInfo.index}"]`);
+                        if (listItem) {
+                            listItem.classList.add('loaded');
+                            listItem.classList.add('cached');
+                        }
+                        
+                        return object;
+                    }
+                } catch (error) {
+                    console.warn('[Cache] Failed to load from IndexedDB:', error);
+                }
+            }
+            
+            // 3. 从网络加载
+            cacheStats.miss++;
             return new Promise((resolve, reject) => {
                 const loader = new THREE.OBJLoader();
-                const filePath = `partof_BP3D_4.0_obj_99/${boneInfo.file}`;
                 
                 loader.load(
                     filePath,
-                    (object) => {
-                        console.log(`Loaded: ${boneInfo.file}`);
+                    async (object) => {
+                        console.log(`[Network] Loaded: ${boneInfo.file}`);
+                        
                         object.traverse((child) => {
                             if (child.isMesh) {
                                 child.material = new THREE.MeshStandardMaterial({
@@ -643,7 +933,6 @@
                         
                         object.scale.set(0.1, 0.1, 0.1);
                         object.rotation.x = -Math.PI / 2;
-                        
                         object.userData.boneIndex = boneInfo.index;
                         object.userData.boneName = boneInfo.name;
                         
@@ -652,6 +941,17 @@
                         
                         const listItem = document.querySelector(`.bone-item[data-index="${boneInfo.index}"]`);
                         if (listItem) listItem.classList.add('loaded');
+                        
+                        // 4. 缓存到 IndexedDB
+                        if (useIndexedDBCache) {
+                            try {
+                                const geometryData = extractGeometryData(object);
+                                await modelCache.cacheGeometry(boneInfo.file, geometryData);
+                                console.log(`[Cache] Saved to IndexedDB: ${boneInfo.file}`);
+                            } catch (cacheError) {
+                                console.warn('[Cache] Failed to save:', cacheError);
+                            }
+                        }
                         
                         resolve(object);
                     },
@@ -669,21 +969,40 @@
             let loadedCount = 0;
             const total = boneModels.length;
             
+            // 检查缓存状态（不阻塞，并行执行）
+            if (useIndexedDBCache) {
+                modelCache.getStats().then(stats => {
+                    if (stats.count > 0) {
+                        console.log(`[Cache] ${stats.count}/${total} models in cache`);
+                        document.getElementById('loading-status').textContent = 
+                            `发现 ${stats.count} 个缓存模型，加速加载中...`;
+                    }
+                }).catch(() => {});
+            }
+            
             for (let i = 0; i < total; i += batchSize) {
                 const batch = boneModels.slice(i, i + batchSize);
                 const promises = batch.map((bone) => {
                     return loadModel(bone).then(() => {
                         loadedCount++;
                         updateLoadingProgress(loadedCount, total, bone.name);
-                    }).catch(() => {
+                    }).catch((err) => {
+                        console.warn(`Failed to load ${bone.file}:`, err);
                         loadedCount++;
                         updateLoadingProgress(loadedCount, total, bone.name);
                     });
                 });
                 
                 await Promise.all(promises);
-                await new Promise(resolve => setTimeout(resolve, 10));
+                
+                // 每加载一批后让出时间，避免阻塞UI
+                if (i + batchSize < total) {
+                    await new Promise(resolve => setTimeout(resolve, 5));
+                }
             }
+            
+            // 更新缓存统计
+            updateCacheStats();
             
             setTimeout(() => {
                 document.getElementById('loading').style.opacity = '0';
@@ -691,8 +1010,8 @@
                 isLoading = false;
                 // Force render after loading complete
                 renderer.render(scene, camera);
-                console.log('Loading complete. Models in scene:', loadedModels.size);
-                console.log('Scene children count:', scene.children.length);
+                console.log('[Loading] Complete. Models in scene:', loadedModels.size);
+                console.log('[Cache] Stats:', cacheStats);
             }, 500);
             
             document.getElementById('loaded-count').textContent = loadedCount;
@@ -949,7 +1268,7 @@
             });
         });
 
-        init();
+        init().catch(err => console.error('Initialization failed:', err));
     </script>
 </body>
 </html>

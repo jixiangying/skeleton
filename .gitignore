@@ -49,3 +49,8 @@ data/
 setup-git-lfs.sh
 GIT_LFS_SETUP.md
 MOBILE_OPTIMIZATION.md
+
+# 数据处理脚本（含本地信息，不提交GitHub）
+scripts/extract_bones.py
+
+SESSION_LOG.md

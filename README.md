@@ -65,8 +65,8 @@ https://dbarchive.biosciencedbc.jp/en/bodyparts3d/
 - 🌐 **在线访问** | Online: https://jixiangying.github.io/anatomy/
 - 📦 **源代码** | Source: https://github.com/jixiangying/anatomy
 
-> 完整版包含1,258个OBJ文件，涵盖人体所有主要器官系统。
-> *The full version contains 1,258 OBJ files covering all major organ systems.*
+> 完整版包含2,234个OBJ文件 (**isa** classification)，涵盖人体所有主要器官系统。
+> *The full version contains 2,234 OBJ files covering all major organ systems.*
 
 ---
 
